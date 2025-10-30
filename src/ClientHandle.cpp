@@ -245,6 +245,11 @@ void cClientHandle::ProxyInit(const AString & a_IPString, const cUUID & a_UUID, 
 
 void cClientHandle::ProcessProtocolIn(void)
 {
+	if (m_State >= csDestroyed)
+	{
+		return;
+	}
+
 	// Process received network data:
 	decltype(m_IncomingData) IncomingData;
 	{
@@ -1932,7 +1937,7 @@ void cClientHandle::HandleKeepAlive(UInt32 a_KeepAliveID)
 bool cClientHandle::CheckMultiLogin(const AString & a_Username)
 {
 	// If the multilogin is allowed, skip this check entirely:
-	if ((cRoot::Get()->GetServer()->DoesAllowMultiLogin()))
+	if (cRoot::Get()->GetServer()->DoesAllowMultiLogin())
 	{
 		return true;
 	}
@@ -1945,10 +1950,24 @@ bool cClientHandle::CheckMultiLogin(const AString & a_Username)
 	}
 
 	// Check if the player is in any World.
-	if (cRoot::Get()->DoWithPlayer(a_Username, [](cPlayer &) { return true; }))
+	cPlayer * OldPlayer = nullptr;
+	cRoot::Get()->DoWithPlayer(
+		a_Username,
+		[&OldPlayer](cPlayer & a_Player)
+		{
+			OldPlayer = &a_Player;
+			return true;
+		}
+	);
+
+	if (OldPlayer != nullptr)
 	{
-		Kick("A player of the username is already logged in");
-		return false;
+		auto OldClient = OldPlayer->GetClientHandle();
+		if (OldClient != nullptr)
+		{
+			OldClient->Destroy();
+			LOGINFO("Destroyed old connection for user \"%s\" to allow a new one.", a_Username.c_str());
+		}
 	}
 	return true;
 }
